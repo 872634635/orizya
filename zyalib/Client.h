@@ -20,7 +20,6 @@ class mycommit;//改
 
 extern void retransmit_request_handler();
 extern void start_commit_handler();
-//extern void retransmit_commit_handler();
 extern void retransmit_reply_handler();
 
 extern void rtimer_handler();

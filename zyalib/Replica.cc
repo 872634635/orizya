@@ -109,9 +109,9 @@ vi(node_id, 0)
 		low_bound			= 0;
 
 		max_request_ordered = 0;
-		max_mycommitted_locally = 0;//改
 		last_executed		= 0;
-		last_mycommit		= 0;//改
+		last_mycommit		= 0;//改 所发送的最后的mycommit消息对应的序列号
+		max_mycommitted_locally = 0;//改
 		batch_size			= bsize;
 		max_batch_size		= bsize;
 		checkpoint_stable	= 0;
@@ -148,9 +148,9 @@ vi(node_id, 0)
 		//fprintf(stderr," Itimer : %d \n", it);  
 		//fprintf(stderr," Stimer : %d \n", st);  
 		//fprintf(stderr," Vtimer : %d \n", vt);  
-		itimer				= new ITimer(it + lrand48() % 100, itimer_handler);
-		vtimer				= new ITimer(vt + lrand48() % 100, vtimer_handler);
-		stimer				= new ITimer(st + lrand48() % 100, stimer_handler);
+		itimer				= new ITimer(it*10000 + lrand48() % 100, itimer_handler);
+		vtimer				= new ITimer(vt*10000 + lrand48() % 100, vtimer_handler);
+		stimer				= new ITimer(st*10000 + lrand48() % 100, stimer_handler);
 		
 		//start_commit_timer = new ITimer(atimeout, start_commit_handler);
 		//这里要怎么样调用 因为atimeout是在文件client中 
@@ -173,8 +173,8 @@ vi(node_id, 0)
 			exit(1);
 		}
 
-		printf("my clear\n");
-		myc_reps->clear();//应该在replica初始化的时候....................................
+		//这个需要吗 因为发送完mycommit消息对应的Mycommitted_locally都会clear()
+		myc_reps->clear();
 					
 		
 #ifdef LARGE_SND_BUFF
@@ -1118,25 +1118,25 @@ void Replica::handle(Order_request * m)
 		//新加函数 send_mycommitted_locally
 		// 当收到2f+1个match的其他副本发来的mycommit消息之后给client发消息
 		
-		void Replica::send_mycommitted_locally(Mycommit * m, Digest & d)//这里的d是请求历史摘要
+		void Replica::send_mycommitted_locally(Mycommit * m, Digest & d)//这里的d是请求历史摘要 
 		{
-			myc_reps->clear();
 			//只需要给对应的mycommit消息发mycommitted_locally消息
 			int Id = id();//当前节点(replica)的id
 			Seqno s	= m->seqno();//primary发来的OR消息相应的序列号
 			Principal * p = i_to_p(Id);
 			bool complete = myc_reps->is_complete();//myc_reps什么时间归零 更新
-		
 			Seqno	bnum = rh_log.batch_snum(s);
 			
-			if (complete )
+			Digest	reqd;
+			Digest	rh_d;
+			
+			if (complete)
 			{
 				for( int i = s; i<= bnum;i++)//注意循环的条件
 				{
 					//batch_snum Max sequence number of the batch that this request is part of
-					Digest	reqd;
-					bool	stat = rh_log.request_digest(i, &reqd);
-					Digest d ;
+
+					bool	stat = rh_log.request_digest(i, &reqd);//这里的reqd是单个request的摘要
 					Request *	r	= NULL;
 					if (stat)
 					{
@@ -1147,26 +1147,26 @@ void Replica::handle(Order_request * m)
 							Seqno rcid = r->client_id() ;
 							Principal * p = i_to_p(rcid);
 							
-							rh_log.comp_history_digest(i, &d);//注意这里的digest d
+							rh_log.comp_history_digest(i, &rh_d);//注意这里的digest d
 							
-							if( max_mycommitted_locally < s )
+							if( (max_mycommitted_locally < i) && (rh_d == d ))
 							{
 								Mycommitted_locally * mycl = new Mycommitted_locally(view(), r->request_id(), node->id(), d, p);
-								send(mycl, rcid);
-								max_mycommitted_locally = i;
+								send(mycl, rcid);//每个mycommitted_locally消息的rcid是不同的
+								max_mycommitted_locally = i;//更新max_mycommitted_locally
 								delete mycl;
 							}
 							else 
 							{
-								break;
+								break;//committed的序列号小于i合理 大于等于i跳出该函数？？？？？？？？？？？？？
 							}
 						}
 					}
 				}
+				myc_reps->clear();//处理过对应的mycommit消息，将myc_reps清空。
 			}
 		}
 		
-		//注意verify
 		//根据上下文 还是改成handle(Mycommit*)
 		void Replica::handle(Mycommit * m)
 		{
@@ -1176,13 +1176,13 @@ void Replica::handle(Order_request * m)
 			Seqno mcl = max_mycommitted_locally;
 
 			
-			if ( in_wv(m)&& has_new_view()&& m->verify() ) 
+			if ( in_wv(m)&& ms > low_bound && m->verify() )  //&& has_new_view()
 			{
 				//delete m;
 				//fprintf(stderr,"Failed to read response with rid :%llu cur rid :%llu cid : %d \n", 
 				//rep->request_id(),out_rid,rep->id());
 							
-				if (ms < mcl)
+				if ((ms < mcl) && (ms == (last_mycommit+1)) )
 				{
 					if(!myc_reps->add(m)) {
 					//fprintf(stderr,"Failed to add response with rid :%llu cid : %d Count : %d recvd : %d\n", 
@@ -1193,7 +1193,7 @@ void Replica::handle(Order_request * m)
 							//rep->request_id(),rep->id(),r_reps->num_correct(), r_reps->num_elements());
 					}
 
-					if (myc_reps->is_complete() ) 
+					if (myc_reps->is_complete() ) //2f+1
 					{
 						Digest			d;
 						d = m->request_history_digest();
@@ -1216,17 +1216,14 @@ void Replica::handle(Order_request * m)
 			int bsize = m->bsize();
 			View 	v = m->view();
 			int Id = id();
-			Principal * p = i_to_p(Id);
+			//Principal * p = i_to_p(Id);
 			
-			if(last_mycommit < ms)
+			if(last_mycommit < ms && max_mycommitted_locally < ms)
 			{
-				Mycommit *myc =new Mycommit(v,ms,bsize,id(),d,p);
-				myc->authenticate();
-				send(myc,All_replicas);//改。。发mycommit消息给所有副本
-						
-				//mycommits.add(*rid, myc);//cache跟requests一样 看是怎么定义的
-				last_mycommit = ms+bsize-1;//replica需加入该变量
-				//感觉只需要把最后发出的mycommit对应的序列号给出就行了
+				Mycommit *myc =new Mycommit(v,ms,bsize,id(),d);
+				myc->authenticate(true);
+				send(myc,All_replicas);//发mycommit消息给所有副本
+				last_mycommit = ms+bsize-1;//更新last_mycommit
 			}
 										
 		}

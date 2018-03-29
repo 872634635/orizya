@@ -57,16 +57,16 @@ class Mycommit : public Message
 	
 	Mycommit(Mycommit_rep *myc);
 	
-	Mycommit(View view, Seqno seq_num,int bsize, int replica, Digest &rh_d, Principal *P);
+	Mycommit(View view, Seqno seq_num,int bsize, int replica, Digest &rh_d);
 
 
-	void authenticate();
+	void authenticate(bool use_auth);
 	// Effects: Terminates the construction of a mycommit message by
 	// setting the length of the mycommit to "act_len", appending a MAC,
 	// and trimming any surplus storage.
 	
  
-	void re_authenticate(Principal *p, bool mac);
+	//void re_authenticate(Principal *p, bool mac);暂时先不要这个函数 用不到
 	// Effects: Recomputes the authenticator in the mycommit using the most
 	// recent key.
  

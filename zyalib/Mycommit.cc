@@ -14,8 +14,8 @@
 Mycommit::Mycommit(Mycommit_rep *myc) : Message(myc) {}
 
 //构造mycommit函数  mycommit消息中包含requests 跟对应的OR消息所包含的是一致的。
-Mycommit::Mycommit(View view, Seqno seq_num, int bsize, int replica, Digest &rh_d,  Principal *p) :
-	 Message(Mycommit_tag, sizeof(Mycommit_rep)+MAC_size)
+Mycommit::Mycommit(View view, Seqno seq_num, int bsize, int replica, Digest &rh_d) :
+	 Message(Mycommit_tag, Max_message_size)
 {
 			 
     rep().v = view; 
@@ -26,9 +26,9 @@ Mycommit::Mycommit(View view, Seqno seq_num, int bsize, int replica, Digest &rh_
 	
 	//INCR_OP(mycommit_auth);
     //START_CC(mycommit_auth_cycles);
-    p->gen_mac_out(contents(), sizeof(Mycommit_rep), contents()+sizeof(Mycommit_rep));
+    //p->gen_mac_out(contents(), sizeof(Mycommit_rep), contents()+sizeof(Mycommit_rep));
     //STOP_CC(reply_auth_cycles);
-    set_size(sizeof(Mycommit_rep)+MAC_size);
+    //set_size(sizeof(Mycommit_rep)+MAC_size);
 	 // Append batched requests information
 	 
 	/*char *nexte = contents()+sizeof(Order_request_rep);
@@ -67,27 +67,28 @@ Mycommit::Mycommit(View view, Seqno seq_num, int bsize, int replica, Digest &rh_
 	set_size(old_size);*/
 }
 
-void Mycommit::authenticate( ) //对应加密
+void Mycommit::authenticate(bool use_auth ) //对应加密
 {
-	printf("test\n");
+	//printf("test\n");
    th_assert((unsigned) node->auth_size() < msize()-sizeof(Mycommit_rep),
 	    "Insufficient memory");
 
   int old_size = sizeof(Mycommit_rep);
   
-  #ifndef USE_PKEY 
-  set_size(old_size + node->auth_size());
-  // Use authenticator 
+  // Use authenticator
+if(use_auth){ 
   node->gen_auth_out(contents(), old_size, contents()+old_size);//到底是该in 还是out
-  #else 
+}
+  else{
     // Use signature
-	set_size(old_size+node->sig_size());
+	//rep().extra |= 2;
     node->gen_signature(contents(), old_size, contents()+old_size);
-  #endif 
+}
    //trim(); 
 }
 
-void Mycommit::re_authenticate(Principal *p, bool mac)
+//其实这个并没有用到
+/*void Mycommit::re_authenticate(Principal *p, bool mac)
 {
    // TO DO : Re-authenticate a principal using the new key
   if (p) {
@@ -107,7 +108,7 @@ void Mycommit::re_authenticate(Principal *p, bool mac)
     }
     trim();
   }
-}
+}*/
 
 //感觉需要两个verify()函数 
 bool Mycommit::verify() 
@@ -127,7 +128,7 @@ bool Mycommit::verify()
 		// 1.0 First check is properly authenticated      
 		if (replica_id != n_id  && size()-old_size >= node->auth_size()) //有疑问
 		{//size():nassage size;
-			if (!node->verify_auth_out(n_id, contents(), sizeof(Mycommit_rep),
+			if (!node->verify_auth_in(n_id, contents(), sizeof(Mycommit_rep),
 					 contents()+old_size)) 
 			{
 				return false;
@@ -138,7 +139,7 @@ bool Mycommit::verify()
 		  // Message is signed.
 			if (size() - old_size >= p->sig_size()) 
 			{
-				if (p->verify_signature(contents(), sizeof(Mycommit_rep),
+				if ( p->verify_signature(contents(), sizeof(Mycommit_rep),
 					contents()+old_size, true)) 
 				{
 					return false;
@@ -163,108 +164,3 @@ bool Mycommit::verify()
 
 //Mycommit.cc结束
 
-
-/*
-
-//send mycommitted_locally消息
-Certificate<MyCommitted_locally> *mycl_reps;// Certificate with mycommit-locally message 应该在replica.h文件里
-Certificate<MyCommit> *myc_reps;
-
-#include "Certificate.t"
-template class Certificate<MyCommitted_locally>;
-
-#include "Certificate_order.t"
-template class Certificate_order<Mycommit>;
-
-
-myc_reps = new Certificate<MyCommitted_locally>(2*f()+1,2*f()+1,3*f()+1);
-mc_reps = new Certificate_order<Mycommit>(2*f()+1,2*f()+1,3*f()+1);
-
-void Replica::send_mycommitted_locally(Mycommit * m, Digest & d)
-{
-			int 			id	= m->cid();
-			Seqno			s	= m->seqno();
-			Principal * 	p	= i_to_p(id);
-			
-			 bool complete = myc_reps->is_complete();
-			if(complete)
-			{
-				if (max_committed_locally < s)
-				{
-					max_committed_locally = s;
-
-					//fprintf(stderr,"Cur req: %llu last exec: %llu last_stable: %llu chkpt : %llu \n",
-					//	s, last_executed,last_stable,last_stable+checkpoint_interval);
-					if ((s <= last_executed) && (s == last_stable + checkpoint_interval))
-					{
-						send_checkpoint(last_stable + checkpoint_interval);
-					}
-				}
-			}
-
-			//fprintf(stderr,"Sending committed locally : %llu	to client : %d \n", s, m->id());
-			MyCommitted_locally * cl = new MyCommitted_locally(view(), m->request_id(), node->id(), d, p);
-
-			send(cl, id);
-			delete cl;								// TO DO : cache this??
-}
-
-
-
-
-
-
-//处理mycommit消息应该也在replica文件中
-void Replica::handle(Mycommit * m)
-{
-	int mcount = 0;
-
-	//fprintf(stderr,"Received locally committed : %llu from client : %d \n", m->seqno(), m->id());
-	if (in_wv(m) && has_new_view())
-	{
-		if (max_committed_locally < m->seqno())
-		{
-			Digest	d;
-			bool	res = rh_log.comp_history_digest(m->seqno(), &d);
-
-			if ((res) && (d == m->request_history_digest()) && m->verify(mcount))
-			{
-				//fprintf(stderr,"Locally committed count: %d \n", mcount);
-				if ((mcount >= (node->commit_qs() - 1)))
-				{
-					send_mycommitted_locally(m, d);
-				}
-			}
-		}
-		else 
-		{
-			Digest	d;
-			bool	res = rh_log.comp_history_digest(m->seqno(), &d);
-
-					if ((res) && (d == m->request_history_digest()))
-						{
-							send_mycommitted_locally(m, d);
-						}
-					}
-				}
-			else if (!in_wv(m))
-				{
-				
-				Digest			d;
-
-				assert(rh_log.comp_history_digest(last_stable, &d));
-				send_committed_locally(m, d);
-
-				//fprintf(stderr,"=============== Slow request ================= \n");
-				}
-			else 
-				{
-				}
-
-			delete m;
-}	
-	
-	
-	//
-
-*/	

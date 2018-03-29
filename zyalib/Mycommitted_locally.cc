@@ -27,13 +27,13 @@ Mycommitted_locally::Mycommitted_locally(View view, Request_id req, int replica,
 }
 
 
-void Mycommitted_locally::authenticate(Principal *p) {//这是要发给client或者说mycommitted_locally是要发给client
+void Mycommitted_locally::authenticate(Principal *clientp) {//这是要发给client或者说mycommitted_locally是要发给client
   int old_size = sizeof(Mycommitted_locally_rep);
 
-  INCR_OP(mycommit_auth);
-  START_CC(mycommit_auth_cycles);
-  p->gen_mac_out(contents(), old_size, contents()+old_size);//
-  STOP_CC(mycommit_auth_cycles);
+  //INCR_OP(mycommit_auth);
+  //START_CC(mycommit_auth_cycles);
+  clientp->gen_mac_out(contents(), old_size, contents()+old_size);//
+  //STOP_CC(mycommit_auth_cycles);
   set_size(old_size+MAC_size);
 }
 
@@ -43,12 +43,12 @@ bool Mycommitted_locally::verify() {
   // Check signature.
   Principal *replica = node->i_to_p(rep().replica);
   
-  INCR_OP(mycommit_auth_ver);
-  START_CC(mycommit_auth_ver_cycles);
+  //INCR_OP(mycommit_auth_ver);
+  //START_CC(mycommit_auth_ver_cycles);
 
   bool ret = replica->verify_mac_in(contents(), sizeof(Mycommitted_locally_rep), contents()+sizeof(Mycommitted_locally_rep));
 
-  STOP_CC(mycommit_auth_ver_cycles);
+ // STOP_CC(mycommit_auth_ver_cycles);
 
   return ret;
 }
