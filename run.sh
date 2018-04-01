@@ -8,7 +8,7 @@ else
 	echo "kill this process"
 	kill -9 $nu
 fi
-
+cd ..
 ./serverp
 
 
