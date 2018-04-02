@@ -145,6 +145,65 @@ bool Certificate<T>::add_mine(T *m) {
   return false;
 }
 
+template <class T> 
+bool Certificate<T>::add_mine_commit(T *m) {
+
+  // ZYZZYVA: Add my order request message after adding message
+  // from the primary. Since we use the same message as the one 
+  // received from the primary but with my authenticator. Hence, this message
+  // cannot be deleted.
+	
+  const int id = m->id();
+  if (node->is_replica(id) && !bmap.test(id)) {
+    // "m" was sent by a replica that does not have a message in
+    // the certificate
+    if ((c == 0 || (c->count < complete && c->m->match(m))) && m->verify()) {
+      // add "m" to the certificate	
+      // th_assert(id != node->id(), "verify should return false for messages from self");
+      
+      bmap.set(id);	
+      if (c) {
+	c->count++;
+    printf(" add_mine successed!\n");
+	return true;
+      } 
+      
+      // Check if there is a value that matches "m"
+      int i;
+      for (i=0; i < cur_size; i++) {
+	Message_val &val = vals[i];
+	if (val.m->match(m)) {
+	  val.count++;
+	  //fprintf(stderr," Certificate matching values %d \n",val.count); 			
+	  if (val.count >= correct) {
+	    c = vals+i;
+	    //fprintf(stderr," Certificate complete with matching= %d \n",val.count);	
+          }
+	printf("add_mine successed!\n");
+	 return true;
+	}
+      }
+      
+      // "m" cannot be a new value.
+      //th_assert(0,"Invalid call to add_mine.");
+
+      if (cur_size < max_size) {
+	vals[cur_size].m = m;
+	vals[cur_size++].count = 1;
+	printf("cur_size<max_size update values\n");
+	return true;
+      } else {
+	// Should only happen for replies to read-only requests.
+	fprintf(stderr, "More than f+1 distinct values in certificate");
+	clear();
+      } 
+    } else {
+      if (m->verify()) bmap.set(id);
+    }
+  }
+ return false;
+} 
+
 
 template <class T> 
 void Certificate<T>::mark_stale() {

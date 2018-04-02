@@ -130,7 +130,7 @@ vi(node_id, 0)
 		}
 		else
 		{
-			myc_reps = new Certificate<Mycommit> (1, 1,3*f()+1);
+			myc_reps = new Certificate<Mycommit> (2*f(), 2*f(),3*f()+1);
 		}
 
 		// Read view change, status, and recovery timeouts from replica's portion
@@ -454,14 +454,14 @@ vi(node_id, 0)
 					execute_request_speculatively(seqno);
 					//Does the primary need to send mycommits messages
 					//primary construct the mycommit message and add_mine
-					View v = oreq->view();
+				/*	View v = oreq->view();
 					Seqno ms = oreq->seqno();
 					Digest d = oreq->request_history_digest();
 					Mycommit *myc = new Mycommit(v,ms,bsize,id(),d);
 					myc->authenticate(true);
 					last_mycommit = ms+bsize-1;
 					myc_reps->add_mine(myc);
-					
+				*/	
 					}
 			
 					
@@ -1248,7 +1248,10 @@ void Replica::handle(Order_request * m)
 				myc->authenticate(true);
 				send(myc,All_replicas);//发mycommit消息给所有副本
 				last_mycommit = ms+bsize-1;//更新last_mycommit
-			/*	myc_reps->add_mine(myc);*/
+				if(primary() != id())
+				{
+					myc_reps->add_mine_commit(myc);
+				}
 			}
 			
 										
